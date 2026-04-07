@@ -3,11 +3,11 @@ import random
 import numpy.random
 import argparse
 from CoSOArchive import CoSOArchive
-from FramsProblem_VertposF1 import FramsProblem
+from FramsProblem_VertposF9 import FramsProblem
 from FeatureExtractor import FeatureExtractor
 from FeatureCoG import FeatureCoG
 from FeatureDeltas import FeatureDeltas
-from FeatureParenthesis import FeatureParenthesis
+# from FeatureParenthesis import FeatureParenthesis
 from utils import Logger
 
 class CoSO:
@@ -52,8 +52,8 @@ class CoSO:
 
         self.features = [FeatureDeltas(), FeatureCoG()]
         self.feature_thresholds = [self.thresh_delta, self.thresh_cog]
-        self.features = [ FeatureParenthesis()]
-        self.feature_thresholds = [0]
+        # self.features = [ FeatureParenthesis()]
+        # self.feature_thresholds = [0]
         self.feature_extractor = FeatureExtractor(self.features, self.feature_thresholds, swap_intensity=self.swap_intensity, logger=self.logger)
         
         self.archive = CoSOArchive(limit=self.archive_limit, internal_limit=self.archive_ilimit, granularity=self.archive_gran, tournament=self.archive_tour)
@@ -135,8 +135,8 @@ class CoSO:
 
         self.no_of_evals_so_far_within_constraints += 1
 
-       #return self.frams.evaluate("//9\n" + sol)
-        return self.frams.evaluate(sol)
+        return self.frams.evaluate("//9\n" + sol) #//9 necessary for f9
+        #return self.frams.evaluate(sol)
     
     
     def get_random(self):
@@ -255,6 +255,7 @@ class CoSO:
                         self.update_archive(pretender)
 
                     self.logger.print_verbose(1, elite_pop)
+                   # print(pretender, self.evaluate(pretender))
                     bisect.insort_left(elite_pop, (pretender, pretender_id), key=lambda x: -self.evaluate(x[0])) #minus, because we want to sort from the highest fitness
 
                     while len(elite_pop) > self.elite_pop_size:
