@@ -5,8 +5,17 @@ import random
 class FramsProblem:
     
     def __init__(self, frams_path, context_path, task, eval_increment_fun):
-        self.frams = FramsticksLib(frams_path, None, context_path+"eval-allcriteria-mini.sim;" \
-            +context_path+"deterministic.sim;"+context_path+"sample-period-2.sim;"+context_path+"stablilize-f9.sim")
+        self.frams = FramsticksLib(
+            frams_path,
+            None,
+            ';'.join([
+                f"{context_path}eval-allcriteria-mini.sim",
+                f"{context_path}deterministic.sim",
+                f"{context_path}sample-period-2.sim",
+                f"{context_path}stablilize-f9.sim",
+                # f"{context_path}only-body.sim",
+            ])
+        )
 
         if task == "vertpos" or task == "velocity":
             self.task = task

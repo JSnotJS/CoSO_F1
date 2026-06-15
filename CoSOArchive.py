@@ -88,11 +88,11 @@ class CoSOArchive:
         
         subs = set()
         for fkey in self.archive:
-            if matches(key, fkey) and key in self.archive:
+            if matches(key, fkey) and fkey in self.archive:
                 if force:
-                    vals = only_vals(self.archive[key], fit) #return all
+                    vals = only_vals(self.archive[fkey], fit) #return all
                 else:
-                    vals = only_vals_tour(self.archive[key], limit) #return some, selected with tournament
+                    vals = only_vals_tour(self.archive[fkey], limit) #return some, selected with tournament
                 subs.update(vals)
 
         subs = list(subs)

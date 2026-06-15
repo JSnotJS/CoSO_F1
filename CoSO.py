@@ -3,12 +3,12 @@ import random
 import numpy.random
 import argparse
 from CoSOArchive import CoSOArchive
-from FramsProblem_VertposF9 import FramsProblem
-from FeatureExtractor import FeatureExtractor
-from FeatureCoG import FeatureCoG
-from FeatureDeltas import FeatureDeltas
-# from FeatureParenthesis import FeatureParenthesis
+from FramsProblem_VertposF1 import FramsProblem
+from features.f1.FeatureExtractor import FeatureExtractor
+from features.f1.FeatureDeltaSpatial import FeatureDeltaSpatial
+from features.f1.FeatureDeltaDirection import FeatureDeltaDirection
 from utils import Logger
+import time
 
 class CoSO:
 
@@ -20,7 +20,7 @@ class CoSO:
         random.seed(args.seed)
         numpy.random.seed(args.seed)
 
-        self.frams = FramsProblem(frams_path=args.frams_path, context_path = "C:/Users/Konrad/Desktop/contextGOMEA/", task="vertpos", eval_increment_fun=self.increment_eval_counter)
+        self.frams = FramsProblem(frams_path=args.frams_path, context_path="D:/STUDIA_v2/THEIR_MAGISTRY/CoSO/context/", task="vertpos", eval_increment_fun=self.increment_eval_counter)
 
         self.swap_intensity = args.swap_intensity
         self.verbose = args.verbose
@@ -34,6 +34,7 @@ class CoSO:
         self.archive_tour = args.archive_tour
 
         self.max_no_of_evals_so_far_fully_evaluated = args.max_evals
+        self.population_zero = args.population_zero
         self.pop_size = args.pop_size #TODO we can split it later...
         self.max_pop_size = args.pop_size
         self.elite_pop_size = args.elite_pop_size
@@ -45,12 +46,16 @@ class CoSO:
 
         self.last_s_id = 0
         self.current_limit = 0
-        self.constraint_max_len = 20
+        self.constraint_max_len = 50
 
         self.filepath = args.filename + self.create_filename(args) 
         self.logger = Logger(self.filepath, self.verbose)
 
-        self.features = [FeatureDeltas(), FeatureCoG()]
+        self.features = [
+            FeatureDeltaSpatial(),
+            FeatureDeltaDirection(),
+        ]
+
         self.feature_thresholds = [self.thresh_delta, self.thresh_cog]
         # self.features = [ FeatureParenthesis()]
         # self.feature_thresholds = [0]
@@ -66,12 +71,14 @@ class CoSO:
     def parse_args(self):
         parser = argparse.ArgumentParser(description='conOGM')
 
-        parser.add_argument('--frams_path', type=str, default ="C:/Users/Konrad/Desktop/Framsticks51",
+        parser.add_argument('--frams_path', type=str, default="D:/Program Files (x86)/Framsticks",
                         help='Path to the Framsticks dir')
         parser.add_argument('--filename', type=str, default = "./",
                         help='Path to the file with results')
         parser.add_argument('--seed', type=int,
                         help='Seed of the run')
+        parser.add_argument('--population_zero', type=int,
+                        help='Path to the file with starting population candidates')
             
         parser.add_argument('--max_evals', type=int, default=250_000,
                         help='Maximum number of evaluations')
@@ -123,7 +130,14 @@ class CoSO:
         name = "results_" + str(params).replace(":", "~") + ".txt" 
 
         return name
-    
+
+
+    def gen_starting_population(self):
+        if self.population_zero is not None:
+            ... # TODO wyciąganie z pliku population_zero
+        
+        return [self.get_random() for _ in range(self.pop_size)]
+
     def evaluate(self, sol):
 
         self.no_of_evals_so_far += 1
@@ -135,8 +149,8 @@ class CoSO:
 
         self.no_of_evals_so_far_within_constraints += 1
 
-        return self.frams.evaluate("//9\n" + sol) #//9 necessary for f9
-        #return self.frams.evaluate(sol)
+        # return self.frams.evaluate("//9\n" + sol) #//9 necessary for f9
+        return self.frams.evaluate(sol)
     
     
     def get_random(self):
@@ -163,11 +177,15 @@ class CoSO:
     def improve(self, solution1, sol_id, force = False):
 
         dict = self.feature_extractor.extract(solution1, save_address=True)
+        # print('DIIIIIIIIIIIIIIIIIII:', dict)
 
         solution_fitness = self.evaluate(solution1)
         self.logger.print_verbose(1, "Improving", solution1, "(", solution_fitness, ")")   
+        if solution_fitness is None:
+            self.logger.print_verbose(1, "\tSkipping improvement due to None fitness")
+            return solution1, False
 
-        #dict1 -> key: (deltas, cog), [val: (seq, address)]
+        #dict1 -> key: (spacial, direction), [val: (seq, address)]
         keys = list(dict.keys())
         random.shuffle(keys)
         for key in keys:
@@ -203,18 +221,20 @@ class CoSO:
 
         current_limit = 1
 
-        population = [self.get_random() for _ in range(self.pop_size)]
+        population = self.gen_starting_population()
         pretender, pretender_id = self.get_random()
 
         elite_pop = []
 
         generation = 0
 
-        force_improvement = False
-        improving_elites = False
+        FORCE_IMPROVEMENT = True
+        IMPROVING_ELITES = False
+
+        t = time.perf_counter_ns()
 
         while self.no_of_evals_so_far_fully_evaluated < self.max_no_of_evals_so_far_fully_evaluated: #for generation in range(1000000): # TODO while True, or directly check
-            if force_improvement:
+            if FORCE_IMPROVEMENT:
                 self.logger.print_verbose(1, "FORCING")
             #current_limit = 2+ int((archive_limit-1)*no_of_evals_so_far_fully_evaluated/max_no_of_evals_so_far_fully_evaluated)
             current_limit = self.archive_limit
@@ -228,7 +248,7 @@ class CoSO:
             count = 0
             improvement = False
             
-            if improving_elites:
+            if IMPROVING_ELITES:
                 for sol, id in population:
                     self.logger.print_verbose(1, count, end=", ")
                     count += 1
@@ -238,7 +258,7 @@ class CoSO:
                 population = new_pop
             else:
                 self.logger.print_verbose(1, count, end=", ")
-                pretender, imp = self.improve(pretender, pretender_id, force = force_improvement)
+                pretender, imp = self.improve(pretender, pretender_id, force = FORCE_IMPROVEMENT)
                 improvement = improvement or imp
 
             self.logger.print_verbose(1, pretender)
@@ -246,16 +266,17 @@ class CoSO:
             self.logger.print_verbose(2, "no_of_evals_so_far_within_constraints", self.no_of_evals_so_far_within_constraints)
             self.logger.print_verbose(1, "no_of_evals_so_far_fully_evaluated", self.no_of_evals_so_far_fully_evaluated)
 
-            if improvement and force_improvement:
-                force_improvement = False
+            if improvement and FORCE_IMPROVEMENT:
+                FORCE_IMPROVEMENT = False
 
             if not improvement:
-                if force_improvement:
+                if FORCE_IMPROVEMENT:
                     if self.evaluate(pretender) != None:
                         self.update_archive(pretender)
 
-                    self.logger.print_verbose(1, elite_pop)
+                    self.logger.print_verbose(1, 'el_pop:', elite_pop)
                    # print(pretender, self.evaluate(pretender))
+                   #  if len(elite_pop):
                     bisect.insort_left(elite_pop, (pretender, pretender_id), key=lambda x: -self.evaluate(x[0])) #minus, because we want to sort from the highest fitness
 
                     while len(elite_pop) > self.elite_pop_size:
@@ -265,20 +286,20 @@ class CoSO:
                     self.logger.log_to_file("converged")
                     
                     pretender, pretender_id = self.get_random()
-                    force_improvement = False
+                    FORCE_IMPROVEMENT = False
                 else:
-                    force_improvement = True                
+                    FORCE_IMPROVEMENT = True
 
+        print((time.perf_counter_ns() - t)/1e9)
         self.logger.log_to_file(type = "fin", sol = pretender, sol_id = pretender_id, fit = self.evaluate(pretender))
         for sol, id in elite_pop:
             self.logger.log_to_file(type = "fin", sol = sol, sol_id = id, fit = self.evaluate(sol))
         self.logger.log_to_file("end")
 
         self.logger.print_verbose(1, "Finally:")
-        self.logger.print_verbose(1, "Best fitness = ", max([(self.evaluate(sol), (sol, id)) for sol, id in elite_pop], key=lambda x:x[0]))
+        self.logger.print_verbose(0, "Best fitness = ", max([(self.evaluate(sol), (sol, id)) for sol, id in elite_pop], key=lambda x:x[0]))
 
 if __name__ == '__main__':
 
     coso = CoSO()
     coso.evolve()
-

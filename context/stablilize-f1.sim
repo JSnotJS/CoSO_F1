@@ -1,0 +1,15 @@
+# Stabilization overlay for f1 genotype evaluations.
+# Analogous to stablilize-f9.sim, intended for f1 runs.
+
+sim_params:
+placement:1
+randinit:0.0
+nnoise:0.0
+bnoise_struct:0.0
+bnoise_vel:0.0
+
+Population:
+stabilperiod:250
+initial_perf_measuring:2
+killnostable:1000000
+stabledist:0.01
