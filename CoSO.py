@@ -7,6 +7,7 @@ from FramsProblem_VertposF1 import FramsProblem
 from features.f1.FeatureExtractor import FeatureExtractor
 from features.f1.FeatureDeltaSpatial import FeatureDeltaSpatial
 from features.f1.FeatureDeltaDirection import FeatureDeltaDirection
+from population.GenotypePool import GenotypePool
 from utils import Logger
 import time
 
@@ -34,7 +35,13 @@ class CoSO:
         self.archive_tour = args.archive_tour
 
         self.max_no_of_evals_so_far_fully_evaluated = args.max_evals
-        self.population_zero = args.population_zero
+        self.genotypes_file = args.genotypes_file
+        self.genotype_pool = None
+        if self.genotypes_file is not None:
+            self.genotype_pool = GenotypePool.from_file(
+                self.genotypes_file,
+                sample_replacement=args.genotypes_sample_replacement,
+            )
         self.pop_size = args.pop_size #TODO we can split it later...
         self.max_pop_size = args.pop_size
         self.elite_pop_size = args.elite_pop_size
@@ -77,8 +84,10 @@ class CoSO:
                         help='Path to the file with results')
         parser.add_argument('--seed', type=int,
                         help='Seed of the run')
-        parser.add_argument('--population_zero', type=int,
-                        help='Path to the file with starting population candidates')
+        parser.add_argument('--genotypes_file', type=str,
+                        help='Path to a text file with one valid genotype per line')
+        parser.add_argument('--genotypes_sample_replacement', action='store_true',
+                        help='Sample genotypes from --genotypes_file with replacement')
             
         parser.add_argument('--max_evals', type=int, default=250_000,
                         help='Maximum number of evaluations')
@@ -96,7 +105,6 @@ class CoSO:
                         help='Threshold for matching deltas (distance squared)')
         parser.add_argument('--thresh_cog', type=int, default=100,
                         help='Threshold for matching center of gravity (distance squared)')
-        
 
         parser.add_argument('--archive_limit', type=int, default=5,
                         help='Maximum number of sequences returned from one bucket in the archive')
@@ -112,7 +120,6 @@ class CoSO:
         return parser.parse_args()
 
     def create_filename(self, args):
-
         params = {
             "id": args.seed,
             "ps": args.pop_size,
@@ -124,22 +131,21 @@ class CoSO:
             "al": args.archive_limit,
             "ag": args.archive_gran,
             "ak": args.archive_tour,
-            "ail": args.archive_ilimit
+            "ail": args.archive_ilimit,
+            "gf": args.genotypes_file is not None,
+            "gsr": args.genotypes_sample_replacement,
         }
-
-        name = "results_" + str(params).replace(":", "~") + ".txt" 
-
+        name = "results_" + str(params).replace(":", "~") + ".txt"
         return name
 
 
     def gen_starting_population(self):
-        if self.population_zero is not None:
-            ... # TODO wyciąganie z pliku population_zero
+        if self.genotype_pool is not None:
+            return [self._register_new_solution(s) for s in self.genotype_pool.sample_many(self.pop_size)]
         
         return [self.get_random() for _ in range(self.pop_size)]
 
     def evaluate(self, sol):
-
         self.no_of_evals_so_far += 1
         if len(sol) > self.constraint_max_len:
             return 0
@@ -153,19 +159,26 @@ class CoSO:
         return self.frams.evaluate(sol)
     
     
-    def get_random(self):
-        length = self.constraint_max_len
-        s = self.frams.random_solution(length)
-
+    def _register_new_solution(self, s):
         self.last_s_id += 1
         s_id = self.last_s_id
         self.logger.log_to_file(type="new", sol=s, sol_id=s_id, fit=self.evaluate(s))
 
         return (s, s_id)
+
+
+    def get_random(self):
+        length = self.constraint_max_len
+        if self.genotype_pool is not None:
+            s = self.genotype_pool.sample()
+        else:
+            s = self.frams.random_solution(length)
+
+        return self._register_new_solution(s)
     
 
     def update_archive(self, sol):
-        dict = self.feature_extractor.extract(sol) #dict -> key: (deltas, cog), [val: seq]
+        dict = self.feature_extractor.extract(sol) #dict -> key: (feature1, feature2, ...), val: [(seq, (start, end)), ...]
         fit = self.evaluate(sol)
         for key in dict:
             self.archive.add(key, fit, dict[key].pop())
@@ -175,9 +188,8 @@ class CoSO:
         return sol[:sub[0][0]] + sub[1] + sol[sub[0][1]:]
 
     def improve(self, solution1, sol_id, force = False):
-
-        dict = self.feature_extractor.extract(solution1, save_address=True)
-        # print('DIIIIIIIIIIIIIIIIIII:', dict)
+        sol1_parts_dict = self.feature_extractor.extract(solution1, save_address=True)
+        # print('DIIIIIIIIIIIIIIIIIII:', sol1_parts_dict)
 
         solution_fitness = self.evaluate(solution1)
         self.logger.print_verbose(1, "Improving", solution1, "(", solution_fitness, ")")   
@@ -185,11 +197,11 @@ class CoSO:
             self.logger.print_verbose(1, "\tSkipping improvement due to None fitness")
             return solution1, False
 
-        #dict1 -> key: (spacial, direction), [val: (seq, address)]
-        keys = list(dict.keys())
+        #dict1 -> key: (feature1, feature2, ...), val: [(seq, (start, end)), ...]
+        keys = list(sol1_parts_dict.keys())
         random.shuffle(keys)
         for key in keys:
-            vals = dict[key]
+            vals = sol1_parts_dict[key]
             og_subs = self.archive.retrieve(key, fit= solution_fitness, thresholds = (self.thresh_delta, self.thresh_cog), limit=self.current_limit, force = force)
             for val in vals:
                 address = val[1]
@@ -222,7 +234,10 @@ class CoSO:
         current_limit = 1
 
         population = self.gen_starting_population()
-        pretender, pretender_id = self.get_random()
+        if self.genotype_pool is not None:
+            pretender, pretender_id = population[0]
+        else:
+            pretender, pretender_id = self.get_random()
 
         elite_pop = []
 
@@ -290,6 +305,9 @@ class CoSO:
                 else:
                     FORCE_IMPROVEMENT = True
 
+            if self.no_of_evals_so_far_fully_evaluated % (self.max_no_of_evals_so_far_fully_evaluated // 10) == 0:
+                self.logger.print_verbose(0, "Kolejne 10%...", self.no_of_evals_so_far_fully_evaluated)
+
         print((time.perf_counter_ns() - t)/1e9)
         self.logger.log_to_file(type = "fin", sol = pretender, sol_id = pretender_id, fit = self.evaluate(pretender))
         for sol, id in elite_pop:
@@ -303,3 +321,7 @@ if __name__ == '__main__':
 
     coso = CoSO()
     coso.evolve()
+
+# TODO - W PODNIENIANIU:
+#  - parsować genotyp na drzewo
+#  - zamiast podmieniac poddrzewa to podmieniac samą zawartość noda, semantyka poprawi sie sama A NIE CHUJ TO NIE ZADZIALA

@@ -16,7 +16,7 @@ class CoSOArchive:
         for p in key:
             els = []
             for el in p:
-                els.append(int(el*self.granularity)/self.granularity)
+                els.append(float(int(float(el)*self.granularity)/self.granularity))
             new_key.append(tuple(els))
         return tuple(new_key)
 
@@ -63,25 +63,23 @@ class CoSOArchive:
                 vls.append(v[1])
             return vls
             
-        def dist(vec1, vec2):
-            d = sum([v**2 for v in [vec1[i] - vec2[i] for i in range(len(vec1))]])
-            return d
+        def feature_distance(vec1, vec2):
+            if len(vec1) != len(vec2):
+                return float("inf")
+            return sum((float(vec1[i]) - float(vec2[i])) ** 2 for i in range(len(vec1))) ** 0.5
         
         def matches(key1, key2):
             if len(key1) == len(key2):
-                #TODO check if all elements are triplets - for now we just assume that's the case
                 for i in range(len(key1)):
-                    if dist(key1[i], key2[i]) > thresholds[i]:
+                    if feature_distance(key1[i], key2[i]) > thresholds[i]:
                         return False
                 return True
             return False
 
         if thresholds == None:
-            thresholds = [0 for _ in len(key)]
+            thresholds = [0 for _ in range(len(key))]
         if len(thresholds) != len(key):
             return [] #TODO do it differently perhaps?
-
-        #key is a list of triplets
 
         if limit == None:
             limit = self.limit

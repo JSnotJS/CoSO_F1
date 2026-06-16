@@ -58,6 +58,5 @@ class FeatureExtractor(FeatureExtractorBase):
                 else:
                     schemas[empty_key] = empty_entries
 
-        if self.logger is not None:
-            self.logger.print_verbose(2, schemas)
+        self.logger.print_verbose(2, schemas)
         return schemas
