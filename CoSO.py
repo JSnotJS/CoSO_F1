@@ -21,7 +21,12 @@ class CoSO:
         random.seed(args.seed)
         numpy.random.seed(args.seed)
 
-        self.frams = FramsProblem(frams_path=args.frams_path, context_path="D:/STUDIA_v2/THEIR_MAGISTRY/CoSO/context/", task="vertpos", eval_increment_fun=self.increment_eval_counter)
+        self.frams = FramsProblem(
+            frams_path=args.frams_path,
+            context_path="D:/STUDIA_v2/THEIR_MAGISTRY/CoSO/context/",
+            task="vertpos",
+            eval_increment_fun=self.increment_eval_counter
+        )
 
         self.swap_intensity = args.swap_intensity
         self.verbose = args.verbose
@@ -50,12 +55,18 @@ class CoSO:
         self.no_of_evals_so_far = 0
         self.no_of_evals_so_far_within_constraints = 0
         self.no_of_evals_so_far_fully_evaluated = 0
+        self.progress_log_interval = args.progress_log_interval
+        self.last_progress_full_evals = -1
+        self.generation = 0
+        self.best_fit = None
+        self.best_sol = None
+        self.start_time = time.perf_counter()
 
         self.last_s_id = 0
         self.current_limit = 0
         self.constraint_max_len = 50
 
-        self.filepath = args.filename + self.create_filename(args) 
+        self.filepath = args.filename + self.create_filename(args)
         self.logger = Logger(self.filepath, self.verbose)
 
         self.features = [
@@ -70,7 +81,8 @@ class CoSO:
         
         self.archive = CoSOArchive(limit=self.archive_limit, internal_limit=self.archive_ilimit, granularity=self.archive_gran, tournament=self.archive_tour)
 
-        self.logger.log_to_file("start")  
+        self._log_meta(args)
+        self._log_event("start")
     
     def increment_eval_counter(self):
         self.no_of_evals_so_far_fully_evaluated += 1
@@ -114,6 +126,8 @@ class CoSO:
                         help='Granularity of the archive addressing (e.g. 3 means precision of 1/3 etc.)')
         parser.add_argument('--archive_tour', type=int, default=3,
                         help='Tournament size for selecting sequences from a bucket')
+        parser.add_argument('--progress_log_interval', type=int, default=100,
+                        help='Log progress every N full Framsticks evaluations; 0 disables interval progress logging')
         
         parser.add_argument('--verbose', type=int, default=1,
                         help='How much info should be written to standard output')
@@ -134,9 +148,98 @@ class CoSO:
             "ail": args.archive_ilimit,
             "gf": args.genotypes_file is not None,
             "gsr": args.genotypes_sample_replacement,
+            "pli": args.progress_log_interval,
         }
-        name = "results_" + str(params).replace(":", "~") + ".txt"
+        name = "results_" + str(params).replace(":", "~") + ".jsonl"
         return name
+
+
+    def _elapsed_s(self):
+        return time.perf_counter() - self.start_time
+
+
+    def _archive_entry_count(self):
+        return sum(len(entries) for entries in self.archive.archive.values())
+
+
+    def _event_state(self):
+        return {
+            "generation": self.generation,
+            "evals": self.no_of_evals_so_far,
+            "within_constraint_evals": self.no_of_evals_so_far_within_constraints,
+            "full_evals": self.no_of_evals_so_far_fully_evaluated,
+            "elapsed_s": self._elapsed_s(),
+            "best_fit": self.best_fit,
+            "archive_keys": len(self.archive.archive),
+            "archive_entries": self._archive_entry_count(),
+        }
+
+
+    def _log_event(self, event, **fields):
+        payload = self._event_state()
+        payload.update(fields)
+        self.logger.log_event(event, **payload)
+
+
+    def _log_meta(self, args):
+        self.logger.log_event(
+            "meta",
+            schema_version=1,
+            seed=args.seed,
+            task="vertpos",
+            frams_path=args.frams_path,
+            max_evals=args.max_evals,
+            pop_size=args.pop_size,
+            elite_pop_size=args.elite_pop_size,
+            swap_perc=args.swap_perc,
+            swap_intensity=args.swap_intensity,
+            thresholds=[self.thresh_delta, self.thresh_cog],
+            archive_limit=args.archive_limit,
+            archive_internal_limit=args.archive_ilimit,
+            archive_granularity=args.archive_gran,
+            archive_tournament=args.archive_tour,
+            progress_log_interval=args.progress_log_interval,
+            genotypes_file=args.genotypes_file,
+            genotypes_sample_replacement=args.genotypes_sample_replacement,
+            features=[feature.__class__.__name__ for feature in self.features],
+            result_file=self.filepath,
+        )
+
+
+    def _update_best(self, fit, sol):
+        if fit is None:
+            return False
+
+        if self.best_fit is None or fit > self.best_fit:
+            self.best_fit = fit
+            self.best_sol = sol
+            return True
+
+        return False
+
+
+    def _log_progress(self, reason, current_fit=None, current_sol_id=None):
+        self._log_event(
+            "progress",
+            reason=reason,
+            current_fit=current_fit,
+            current_sol_id=current_sol_id,
+        )
+
+
+    def _maybe_log_eval_progress(self, before_full_evals, fit):
+        if self.progress_log_interval <= 0:
+            return
+
+        if self.no_of_evals_so_far_fully_evaluated == before_full_evals:
+            return
+
+        if self.no_of_evals_so_far_fully_evaluated == self.last_progress_full_evals:
+            return
+
+        if self.no_of_evals_so_far_fully_evaluated % self.progress_log_interval == 0:
+            self.last_progress_full_evals = self.no_of_evals_so_far_fully_evaluated
+            self._log_progress("eval_interval", current_fit=fit)
 
 
     def gen_starting_population(self):
@@ -146,23 +249,34 @@ class CoSO:
         return [self.get_random() for _ in range(self.pop_size)]
 
     def evaluate(self, sol):
+        before_full_evals = self.no_of_evals_so_far_fully_evaluated
         self.no_of_evals_so_far += 1
         if len(sol) > self.constraint_max_len:
-            return 0
+            fit = 0
+            self._update_best(fit, sol)
+            return fit
 
         if len(sol) == 0:
-            return 0
+            fit = 0
+            self._update_best(fit, sol)
+            return fit
 
         self.no_of_evals_so_far_within_constraints += 1
 
         # return self.frams.evaluate("//9\n" + sol) #//9 necessary for f9
-        return self.frams.evaluate(sol)
+        fit = self.frams.evaluate(sol)
+        is_new_best = self._update_best(fit, sol)
+        self._maybe_log_eval_progress(before_full_evals, fit)
+        if is_new_best:
+            self._log_event("best", fit=fit, genotype=sol)
+        return fit
     
     
     def _register_new_solution(self, s):
         self.last_s_id += 1
         s_id = self.last_s_id
-        self.logger.log_to_file(type="new", sol=s, sol_id=s_id, fit=self.evaluate(s))
+        fit = self.evaluate(s)
+        self._log_event("new", sol_id=s_id, fit=fit, genotype=s)
 
         return (s, s_id)
 
@@ -202,7 +316,13 @@ class CoSO:
         random.shuffle(keys)
         for key in keys:
             vals = sol1_parts_dict[key]
-            og_subs = self.archive.retrieve(key, fit= solution_fitness, thresholds = (self.thresh_delta, self.thresh_cog), limit=self.current_limit, force = force)
+            og_subs = self.archive.retrieve(
+                key,
+                fit= solution_fitness,
+                thresholds = (self.thresh_delta, self.thresh_cog),
+                limit=self.current_limit,
+                force = force
+            )
             for val in vals:
                 address = val[1]
                 subs = og_subs[:]
@@ -222,8 +342,23 @@ class CoSO:
                     # print(candidate, candidate_fitness)
                     
                     if candidate_fitness > solution_fitness: #TODO test >=
-                        self.logger.print_verbose(1, "\tImprovement accepted!", solution1, "(", solution_fitness, ") becomes", candidate, "(", candidate_fitness, ")", (solution1[sub[0][0]:sub[0][1]], sub[1]))
-                        self.logger.log_to_file(type="imp", sol=candidate, sol_id=sol_id, fit=candidate_fitness, sub_from=solution1[sub[0][0]:sub[0][1]], sub_to=sub[1])
+                        self.logger.print_verbose(
+                            1,
+                            "\tImprovement accepted!",
+                            solution1, "(", solution_fitness, ") becomes",
+                            candidate, "(", candidate_fitness, ")",
+                            (solution1[sub[0][0]:sub[0][1]], sub[1]))
+                        self._log_event(
+                            "imp",
+                            sol_id=sol_id,
+                            fit=candidate_fitness,
+                            previous_fit=solution_fitness,
+                            genotype=candidate,
+                            previous_genotype=solution1,
+                            sub_from=solution1[sub[0][0]:sub[0][1]],
+                            sub_to=sub[1],
+                        )
+                        self._log_progress("improvement", current_fit=candidate_fitness, current_sol_id=sol_id)
                         #update_archive(archive, candidate, candidate_fitness)
                         return candidate, True
 
@@ -241,7 +376,7 @@ class CoSO:
 
         elite_pop = []
 
-        generation = 0
+        self.generation = 0
 
         FORCE_IMPROVEMENT = True
         IMPROVING_ELITES = False
@@ -254,8 +389,7 @@ class CoSO:
             #current_limit = 2+ int((archive_limit-1)*no_of_evals_so_far_fully_evaluated/max_no_of_evals_so_far_fully_evaluated)
             current_limit = self.archive_limit
 
-            self.logger.print_verbose(1, "Generation #", generation, " limit ", str(current_limit))
-            generation +=1
+            self.logger.print_verbose(1, "Generation #", self.generation, " limit ", str(current_limit))
            # print_verbose(1, "Best fitness (pop) = ", max([(self.evaluate(sol), sol) for sol, id in population], key=lambda x:x[0]))
             self.logger.print_verbose(1, "Best fitness (pretender) = ", (self.evaluate(pretender), pretender))
             self.logger.print_verbose(1, "Best fitness (elite_pop) = ", max([(self.evaluate(sol), sol) for sol, _ in elite_pop], key=lambda x:x[0], default=0))
@@ -295,24 +429,36 @@ class CoSO:
                     bisect.insort_left(elite_pop, (pretender, pretender_id), key=lambda x: -self.evaluate(x[0])) #minus, because we want to sort from the highest fitness
 
                     while len(elite_pop) > self.elite_pop_size:
-                        self.logger.log_to_file(type = "del", sol = elite_pop[-1][0], sol_id = elite_pop[-1][1], fit = self.evaluate(elite_pop[-1][0]))
+                        self._log_event(
+                            "del",
+                            sol_id=elite_pop[-1][1],
+                            fit=self.evaluate(elite_pop[-1][0]),
+                            genotype=elite_pop[-1][0],
+                        )
                         elite_pop = elite_pop[:self.elite_pop_size]
                     
-                    self.logger.log_to_file("converged")
+                    self._log_event("converged", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
+                    self._log_progress("converged", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
                     
                     pretender, pretender_id = self.get_random()
                     FORCE_IMPROVEMENT = False
                 else:
                     FORCE_IMPROVEMENT = True
 
-            if self.no_of_evals_so_far_fully_evaluated % (self.max_no_of_evals_so_far_fully_evaluated // 10) == 0:
+            self._log_progress("generation_end", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
+            self.generation += 1
+
+            progress_print_interval = max(1, self.max_no_of_evals_so_far_fully_evaluated // 10)
+            if self.no_of_evals_so_far_fully_evaluated % progress_print_interval == 0:
                 self.logger.print_verbose(0, "Kolejne 10%...", self.no_of_evals_so_far_fully_evaluated)
 
-        print((time.perf_counter_ns() - t)/1e9)
-        self.logger.log_to_file(type = "fin", sol = pretender, sol_id = pretender_id, fit = self.evaluate(pretender))
+        elapsed_s = (time.perf_counter_ns() - t)/1e9
+        print(elapsed_s)
+        self._log_progress("finished", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
+        self._log_event("fin", sol_id=pretender_id, fit=self.evaluate(pretender), genotype=pretender, rank=0)
         for sol, id in elite_pop:
-            self.logger.log_to_file(type = "fin", sol = sol, sol_id = id, fit = self.evaluate(sol))
-        self.logger.log_to_file("end")
+            self._log_event("fin", sol_id=id, fit=self.evaluate(sol), genotype=sol)
+        self._log_event("end", best_genotype=self.best_sol, total_elapsed_s=self._elapsed_s())
 
         self.logger.print_verbose(1, "Finally:")
         self.logger.print_verbose(0, "Best fitness = ", max([(self.evaluate(sol), (sol, id)) for sol, id in elite_pop], key=lambda x:x[0]))

@@ -7,3 +7,5 @@ __pycache__
 /frams-test.py
 frams.py
 results_*
+/launch_tests_logs
+/plots
