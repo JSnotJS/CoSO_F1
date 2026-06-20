@@ -263,6 +263,12 @@ class CoSO:
 
         self.no_of_evals_so_far_within_constraints += 1
 
+        if self.genotype_pool is not None:
+            known_fit = self.genotype_pool.get_fitness(sol)
+            if known_fit is not None:
+                self._update_best(known_fit, sol)
+                return known_fit
+
         # return self.frams.evaluate("//9\n" + sol) #//9 necessary for f9
         fit = self.frams.evaluate(sol)
         is_new_best = self._update_best(fit, sol)
@@ -334,6 +340,11 @@ class CoSO:
                 for s in subs:
                     sub = (address, s)
                     candidate = self.apply_sub(solution1, sub)
+                    unrepaired_candidate = candidate
+                    candidate = self.frams.repair(candidate)
+                    if candidate is None:
+                        continue
+                    repaired = candidate != unrepaired_candidate
                     candidate_fitness = self.evaluate(candidate)
 
                     if candidate_fitness is None:
@@ -354,6 +365,8 @@ class CoSO:
                             fit=candidate_fitness,
                             previous_fit=solution_fitness,
                             genotype=candidate,
+                            unrepaired_genotype=unrepaired_candidate if repaired else None,
+                            repaired=repaired,
                             previous_genotype=solution1,
                             sub_from=solution1[sub[0][0]:sub[0][1]],
                             sub_to=sub[1],

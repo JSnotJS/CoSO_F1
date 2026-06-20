@@ -8,10 +8,11 @@ RUNS = 30
 
 BASE_ARGS = [
     "--verbose", "0",
-    "--max_evals", "5000",
+    "--max_evals", "25000",
     "--elite_pop_size", "10",
     "--thresh_delta", "2",
-    "--thresh_cog", "15",
+    "--thresh_cog", "60",
+    "--genotypes_file", "./population/f1_dataset.tsv",
 ]
 
 ROOT_DIR = Path(__file__).resolve().parents[1]

@@ -1,3 +1,4 @@
+import textwrap
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
@@ -180,3 +181,10 @@ def collect_subtrees(tree: F1Tree) -> List[F1Tree]:
     for child in tree.children:
         out.extend(collect_subtrees(child))
     return out
+
+
+if __name__ == '__main__':
+    parser = F1Parser(text='XRRX(XFX,X(RX(X,X),XRFX),RX)')
+    t = parser.parse()
+    print(*list(map(lambda x: x, collect_subtrees(t))), sep='\n')
+    print(*list(map(serialize_f1, collect_subtrees(t))), sep='\n')
