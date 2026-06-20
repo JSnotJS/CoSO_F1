@@ -62,6 +62,10 @@ class FramsProblem:
             print("[WARN] Evaluation exception for genotype:", s)
             # print("[WARN] Exception:", repr(e))
         return fit
+
+    @lru_cache(maxsize=1_000_000, typed=False)
+    def repair(self, s):
+        return self.frams.repair(s)
     
     def mutate(self, s):
         return self.frams.mutate([s])[0]

@@ -78,6 +78,29 @@ class FramsticksLib:
 		return frams.GenMan.getSimplest(genetic_format).genotype._string()
 
 
+	def repair(self, genotype: str):
+		"""
+		Attempts to validate/repair a genotype using Framsticks genetic operators.
+		Returns the repaired genotype string, or None if Framsticks could not repair it.
+		"""
+		if genotype is None or len(genotype) == 0:
+			return None
+
+		try:
+			repaired = frams.GenMan.validate(frams.Geno.newFromString(genotype))
+		except Exception:
+			return None
+
+		if repaired.is_valid._int() != 1:
+			return None
+
+		repaired_genotype = repaired.genotype._string()
+		if repaired_genotype == self.GENOTYPE_INVALID:
+			return None
+
+		return repaired_genotype
+
+
 	def getPJNC(self, genotype: str):
 		"""
 		Returns the number of elements of a phenotype built from the provided genotype (without any simulation).
