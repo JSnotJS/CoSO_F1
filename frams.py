@@ -1,13 +1,13 @@
 """Framsticks as a Python module.
 
-Static FramScript objects are available inside the module under their well known names
+Static FramScript objects are available inside the module under their well-known names
 (frams.Simulator, frams.GenePools, etc.)
 
 These objects and all values passed to and from Framsticks are instances of frams.ExtValue.
-Python values are automatically converted to Framstics data types.
+Python values are automatically converted to Framsticks data types.
 Use frams.ExtValue._makeInt()/_makeDouble()/_makeString()/_makeNull() for explicit conversions.
 Simple values returned from Framsticks can be converted to their natural Python
-counterparts using _value() (or forced to a specific type with  _int()/_double()/_string()).
+counterparts using _value() (or forced to a specific type with _int()/_double()/_string()).
 
 All non-Framsticks Python attributes start with '_' to avoid conflicts with Framsticks attributes.
 Framsticks names that are Python reserved words are prefixed with 'x' (currently just Simulator.ximport).
@@ -19,21 +19,21 @@ that uses this module will initialize it and get access to a separate instance o
 
 If you want to use this module from multiple threads concurrently, use the "-t" option for init().
 This will make concurrent calls from different threads sequential, thus making them safe.
-However, this will likely degrade the performance (due to required locking) compared to the single-threaded use.
+However, this will likely degrade performance (due to required locking) compared to the single-threaded use.
 
 For interfaces in other languages (e.g. using the Framsticks library in your C++ code), see ../cpp/frams/frams-objects.h
 """
 
 import ctypes, re, sys, os
 
-c_api = None  # will be initialized in init(). Global because ExtValue uses it.
+c_api = None  # will be initialized in init(). This variable is global because all ExtValue objects use it extensively.
 
 
 class ExtValue(object):
 	"""All Framsticks objects and values are instances of this class. Read the documentation of the 'frams' module for more information."""
 
-	_reInsideParens = re.compile('\((.*)\)')
-	_reservedWords = ['import']  # this list is scanned during every attribute access, only add what is really clashing with Framsticks properties
+	_reInsideParens = re.compile(r'\((.*)\)')
+	_reservedWords = ['import']  # this list is scanned during every attribute access; only add what is really clashing with Framsticks properties
 	_reservedXWords = ['x' + word for word in _reservedWords]
 	_encoding = 'utf-8'
 
@@ -52,9 +52,17 @@ class ExtValue(object):
 		else:
 			raise ctypes.ArgumentError("Can't make ExtValue from '%s' (%s)" % (str(arg), type(arg)))
 
+		# Bypass our custom __setattr__ (just like a regular self.myfield=... assignment here, it would cause infinite recursion because our custom __setattr__ creates another ExtValue object) by calling object.__setattr__ directly:
+		# object.__setattr__(self, 'debuginfo', "typ=%s, class=%s, arg=%s" % (str(self._type()), str(self._class()), str(arg)))  # for debugging the order of deletion/destruction of ExtValue objects		
+
 
 	def __del__(self):
-		c_api.extFree(self.__ptr)
+		# debuginfo = self.__dict__['debuginfo'] if 'debuginfo' in self.__dict__ else '(not-inited)'
+		if c_api is not None:  # there is some unknown interaction between the native Framsticks library and other native Python libraries (like numpy) which affects the order of Python interpreter's garbage collector and leads to occasional calls of this destructor after c_api becomes None (when the Python interpreter exits). Hence this protection to avoid calling extFree() on None. An alternative would be to use self._finalizer = weakref.finalize(self, c_api.extFree, self.__ptr) instead of __del__.
+			#print("\tDeleter of the object with debuginfo='%s'" % debuginfo)
+			c_api.extFree(self.__ptr)
+		#else:
+		#	print("\t*** The deleter of the object with debuginfo='%s' has c_api==None, so unable to extFree() !" % debuginfo)
 
 
 	def _initFromNull(self):
@@ -160,6 +168,10 @@ class ExtValue(object):
 		return c_api.extPropCount(self.__ptr)
 
 
+	def _propFind(self, key): # returns integer index of a property within an object. This index is an argument to a family of functions such as _propId(), _propName(), _propType() etc.
+		return c_api.extPropFind(self.__ptr, ExtValue._cstringFromPython(key))
+
+
 	def _propId(self, i):
 		return ExtValue._stringFromC(c_api.extPropId(self.__ptr, i))
 
@@ -174,7 +186,7 @@ class ExtValue(object):
 
 	def _propHelp(self, i):
 		h = c_api.extPropHelp(self.__ptr, i)  # unlike other string fields, help is sometimes NULL
-		return ExtValue._stringFromC(h) if h != None else '';
+		return ExtValue._stringFromC(h) if h != None else ''
 
 
 	def _propFlags(self, i):
@@ -307,10 +319,10 @@ def init(*args):
 	"""
 	Initializes the connection to Framsticks dll/so/dylib.
 
-	Python programs do not have to know the Framstics path but if they know, just pass the path as the first argument.
+	Python programs do not have to know the Framsticks path but if they know, just pass the path as the first argument.
 	Similarly '-dPATH' and '-DPATH' needed by Framsticks are optional and derived from the first path, unless they are specified as args in init().
 	'-LNAME' is the optional library name (full name including the file name extension), default is 'frams-objects.dll/.so/.dylib' depending on the platform.
-	All other arguments are passed to Framsticks and not interpreted by this function.
+	All other arguments are passed to Framsticks and are not interpreted by this function.
 	"""
 
 	frams_d = None
@@ -349,8 +361,8 @@ def init(*args):
 		else:
 			initargs.append(a)
 	if lib_path is None:
-		# TODO: use environment variable and/or the zip distribution we are in when the path is not specified in arg
-		# for now just assume the current dir is Framsticks
+		# TODO: use environment variable and/or the zip distribution we are in when the path is not specified in arg.
+		# For now, just assume the current dir is Framsticks.
 		lib_path = '.'
 
 	if os.name == 'nt':
@@ -368,7 +380,7 @@ def init(*args):
 		frams_D = '-D' + abs_data
 	initargs.insert(0, frams_d)
 	initargs.insert(0, frams_D)
-	initargs.insert(0, 'dummy.exe')  # as an offset, 0th arg is by convention app name
+	initargs.insert(0, 'dummy.exe')  # as an offset, 0th arg is by convention the app name
 
 	global c_api  # access global variable
 	if lib_path is not None:  # theoretically, this should only be needed for "and os.name == 'posix'", but in windows python 3.9.5, without using the full lib_name path, there is FileNotFoundError: Could not find module 'frams-objects.dll' (or one of its dependencies). Try using the full path with constructor syntax. Maybe related: https://bugs.python.org/issue42114 and https://stackoverflow.com/questions/59330863/cant-import-dll-module-in-python and https://bugs.python.org/issue39393
@@ -376,7 +388,7 @@ def init(*args):
 	try:
 		c_api = ctypes.CDLL(lib_name)  # if accessing this module from multiple threads, they will all share a single c_api and access the same copy of the library and its data. If you want separate independent copies, read the comment at the top of this file on using the "multiprocessing" module.
 	except OSError as e:
-		print("*** Could not find or open '%s' from '%s'.\n*** Did you provide proper arguments and is this file readable?\n" % (lib_name, os.getcwd()))
+		print("*** Could not find or open '%s' from '%s'.\n*** Did you provide proper arguments and is that file readable?\n" % (lib_name, os.getcwd()))
 		raise
 
 	if os.name == 'nt' and sys.version_info < (3, 8):
