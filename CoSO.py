@@ -8,7 +8,7 @@ from features.f1.FeatureExtractor import FeatureExtractor
 from features.f1.FeatureDeltaSpatial import FeatureDeltaSpatial
 from features.f1.FeatureDeltaDirection import FeatureDeltaDirection
 from population.GenotypePool import GenotypePool
-from utils import Logger
+from utils import Logger, ExperimentLogger
 import time
 
 class CoSO:
@@ -56,7 +56,6 @@ class CoSO:
         self.no_of_evals_so_far_within_constraints = 0
         self.no_of_evals_so_far_fully_evaluated = 0
         self.progress_log_interval = args.progress_log_interval
-        self.last_progress_full_evals = -1
         self.generation = 0
         self.best_fit = None
         self.best_sol = None
@@ -65,6 +64,9 @@ class CoSO:
         self.last_s_id = 0
         self.current_limit = 0
         self.constraint_max_len = 50
+        self.max_substitution_ratio = args.max_substitution_ratio
+        if self.max_substitution_ratio < 0:
+            raise ValueError("--max_substitution_ratio must be non-negative")
 
         self.filepath = args.filename + self.create_filename(args)
         self.logger = Logger(self.filepath, self.verbose)
@@ -80,14 +82,15 @@ class CoSO:
         self.feature_extractor = FeatureExtractor(self.features, self.feature_thresholds, swap_intensity=self.swap_intensity, logger=self.logger)
         
         self.archive = CoSOArchive(limit=self.archive_limit, internal_limit=self.archive_ilimit, granularity=self.archive_gran, tournament=self.archive_tour)
+        self.exp_logger = ExperimentLogger(self.logger, self._event_state)
 
-        self._log_meta(args)
-        self._log_event("start")
+        self.exp_logger.log_meta(args, self.features, self.feature_thresholds, self.filepath, task="vertpos")
+        self.exp_logger.log_event("start")
     
     def increment_eval_counter(self):
         self.no_of_evals_so_far_fully_evaluated += 1
 
-    def parse_args(self):
+    def  parse_args(self):
         parser = argparse.ArgumentParser(description='conOGM')
 
         parser.add_argument('--frams_path', type=str, default="D:/Program Files (x86)/Framsticks",
@@ -110,19 +113,21 @@ class CoSO:
                         help='Elite population size')
         parser.add_argument('--swap_perc', type=int, default=100,
                         help='Percent (as integer) of population swapped for new random solutions after convergence')
-        parser.add_argument('--swap_intensity', type=int, default=1,
+        parser.add_argument('--swap_intensity', type=int, default=0,
                         help='0 - no loop removal/insertion, 1 - loop removal/insertion, 2 - lr/i + single gene removal')
-        
-        parser.add_argument('--thresh_delta', type=int, default=0,
+        parser.add_argument('--max_substitution_ratio', type=float, default=0.75,
+                        help='Maximum replacement length as a fraction of the current genotype length')
+
+        parser.add_argument('--thresh_delta', type=float, default=0,
                         help='Threshold for matching deltas (distance squared)')
-        parser.add_argument('--thresh_cog', type=int, default=100,
+        parser.add_argument('--thresh_cog', type=float, default=100,
                         help='Threshold for matching center of gravity (distance squared)')
 
         parser.add_argument('--archive_limit', type=int, default=5,
                         help='Maximum number of sequences returned from one bucket in the archive')
         parser.add_argument('--archive_ilimit', type=int, default=15,
                         help='Maximum number of sequences stored in one bucket in the archive')
-        parser.add_argument('--archive_gran', type=float, default=1,
+        parser.add_argument('--archive_gran', type=float, default=10,
                         help='Granularity of the archive addressing (e.g. 3 means precision of 1/3 etc.)')
         parser.add_argument('--archive_tour', type=int, default=3,
                         help='Tournament size for selecting sequences from a bucket')
@@ -140,6 +145,7 @@ class CoSO:
             "eps": args.elite_pop_size,
             "sp": args.swap_perc,
             "si": args.swap_intensity,
+            "msr": args.max_substitution_ratio,
             "dt": args.thresh_delta,
             "cogt": args.thresh_cog,
             "al": args.archive_limit,
@@ -175,37 +181,6 @@ class CoSO:
         }
 
 
-    def _log_event(self, event, **fields):
-        payload = self._event_state()
-        payload.update(fields)
-        self.logger.log_event(event, **payload)
-
-
-    def _log_meta(self, args):
-        self.logger.log_event(
-            "meta",
-            schema_version=1,
-            seed=args.seed,
-            task="vertpos",
-            frams_path=args.frams_path,
-            max_evals=args.max_evals,
-            pop_size=args.pop_size,
-            elite_pop_size=args.elite_pop_size,
-            swap_perc=args.swap_perc,
-            swap_intensity=args.swap_intensity,
-            thresholds=[self.thresh_delta, self.thresh_cog],
-            archive_limit=args.archive_limit,
-            archive_internal_limit=args.archive_ilimit,
-            archive_granularity=args.archive_gran,
-            archive_tournament=args.archive_tour,
-            progress_log_interval=args.progress_log_interval,
-            genotypes_file=args.genotypes_file,
-            genotypes_sample_replacement=args.genotypes_sample_replacement,
-            features=[feature.__class__.__name__ for feature in self.features],
-            result_file=self.filepath,
-        )
-
-
     def _update_best(self, fit, sol):
         if fit is None:
             return False
@@ -216,30 +191,6 @@ class CoSO:
             return True
 
         return False
-
-
-    def _log_progress(self, reason, current_fit=None, current_sol_id=None):
-        self._log_event(
-            "progress",
-            reason=reason,
-            current_fit=current_fit,
-            current_sol_id=current_sol_id,
-        )
-
-
-    def _maybe_log_eval_progress(self, before_full_evals, fit):
-        if self.progress_log_interval <= 0:
-            return
-
-        if self.no_of_evals_so_far_fully_evaluated == before_full_evals:
-            return
-
-        if self.no_of_evals_so_far_fully_evaluated == self.last_progress_full_evals:
-            return
-
-        if self.no_of_evals_so_far_fully_evaluated % self.progress_log_interval == 0:
-            self.last_progress_full_evals = self.no_of_evals_so_far_fully_evaluated
-            self._log_progress("eval_interval", current_fit=fit)
 
 
     def gen_starting_population(self):
@@ -272,9 +223,14 @@ class CoSO:
         # return self.frams.evaluate("//9\n" + sol) #//9 necessary for f9
         fit = self.frams.evaluate(sol)
         is_new_best = self._update_best(fit, sol)
-        self._maybe_log_eval_progress(before_full_evals, fit)
+        self.exp_logger.maybe_log_eval_progress(
+            before_full_evals,
+            self.no_of_evals_so_far_fully_evaluated,
+            self.progress_log_interval,
+            fit,
+        )
         if is_new_best:
-            self._log_event("best", fit=fit, genotype=sol)
+            self.exp_logger.log_event("best", fit=fit, genotype=sol)
         return fit
     
     
@@ -282,7 +238,7 @@ class CoSO:
         self.last_s_id += 1
         s_id = self.last_s_id
         fit = self.evaluate(s)
-        self._log_event("new", sol_id=s_id, fit=fit, genotype=s)
+        self.exp_logger.log_event("new", sol_id=s_id, fit=fit, genotype=s)
 
         return (s, s_id)
 
@@ -307,6 +263,19 @@ class CoSO:
         #TODO optimize
         return sol[:sub[0][0]] + sub[1] + sol[sub[0][1]:]
 
+
+    def is_substitution_length_ok(self, genotype, replaced_fragment, replacement):
+        max_replacement_len = int(len(genotype) * self.max_substitution_ratio)
+        if len(replacement) > max_replacement_len:
+            return False
+
+        candidate_len = len(genotype) - len(replaced_fragment) + len(replacement)
+        if candidate_len > self.constraint_max_len:
+            return False
+
+        return True
+
+
     def improve(self, solution1, sol_id, force = False):
         sol1_parts_dict = self.feature_extractor.extract(solution1, save_address=True)
         # print('DIIIIIIIIIIIIIIIIIII:', sol1_parts_dict)
@@ -320,6 +289,7 @@ class CoSO:
         #dict1 -> key: (feature1, feature2, ...), val: [(seq, (start, end)), ...]
         keys = list(sol1_parts_dict.keys())
         random.shuffle(keys)
+        archive_retrieve_stats = self.exp_logger.new_archive_retrieve_stats()
         for key in keys:
             vals = sol1_parts_dict[key]
             og_subs = self.archive.retrieve(
@@ -328,6 +298,18 @@ class CoSO:
                 thresholds = (self.thresh_delta, self.thresh_cog),
                 limit=self.current_limit,
                 force = force
+            )
+            self.exp_logger.record_archive_retrieve(archive_retrieve_stats, len(og_subs))
+            self.exp_logger.log_archive_retrieve(
+                sol_id,
+                solution_fitness,
+                force,
+                [self.thresh_delta, self.thresh_cog],
+                self.current_limit,
+                key,
+                len(og_subs),
+                archive_retrieve_stats["calls"],
+                len(vals),
             )
             for val in vals:
                 address = val[1]
@@ -338,6 +320,9 @@ class CoSO:
                     random.shuffle(subs)
 
                 for s in subs:
+                    if not self.is_substitution_length_ok(solution1, val[0], s):
+                        continue
+
                     sub = (address, s)
                     candidate = self.apply_sub(solution1, sub)
                     unrepaired_candidate = candidate
@@ -359,7 +344,7 @@ class CoSO:
                             solution1, "(", solution_fitness, ") becomes",
                             candidate, "(", candidate_fitness, ")",
                             (solution1[sub[0][0]:sub[0][1]], sub[1]))
-                        self._log_event(
+                        self.exp_logger.log_event(
                             "imp",
                             sol_id=sol_id,
                             fit=candidate_fitness,
@@ -371,11 +356,30 @@ class CoSO:
                             sub_from=solution1[sub[0][0]:sub[0][1]],
                             sub_to=sub[1],
                         )
-                        self._log_progress("improvement", current_fit=candidate_fitness, current_sol_id=sol_id)
+                        self.exp_logger.log_progress("improvement", current_fit=candidate_fitness, current_sol_id=sol_id)
+                        self.exp_logger.log_archive_retrieve_summary(
+                            sol_id,
+                            solution_fitness,
+                            force,
+                            [self.thresh_delta, self.thresh_cog],
+                            self.current_limit,
+                            archive_retrieve_stats,
+                            accepted=True,
+                            accepted_fit=candidate_fitness,
+                        )
                         #update_archive(archive, candidate, candidate_fitness)
                         return candidate, True
 
-        return solution1, False #False means "no improvement"        
+        self.exp_logger.log_archive_retrieve_summary(
+            sol_id,
+            solution_fitness,
+            force,
+            [self.thresh_delta, self.thresh_cog],
+            self.current_limit,
+            archive_retrieve_stats,
+            accepted=False,
+        )
+        return solution1, False #False means "no improvement"
         
     def evolve(self):
 
@@ -442,23 +446,23 @@ class CoSO:
                     bisect.insort_left(elite_pop, (pretender, pretender_id), key=lambda x: -self.evaluate(x[0])) #minus, because we want to sort from the highest fitness
 
                     while len(elite_pop) > self.elite_pop_size:
-                        self._log_event(
+                        self.exp_logger.log_event(
                             "del",
                             sol_id=elite_pop[-1][1],
                             fit=self.evaluate(elite_pop[-1][0]),
                             genotype=elite_pop[-1][0],
                         )
                         elite_pop = elite_pop[:self.elite_pop_size]
-                    
-                    self._log_event("converged", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
-                    self._log_progress("converged", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
+
+                    self.exp_logger.log_event("converged", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
+                    self.exp_logger.log_progress("converged", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
                     
                     pretender, pretender_id = self.get_random()
                     FORCE_IMPROVEMENT = False
                 else:
                     FORCE_IMPROVEMENT = True
 
-            self._log_progress("generation_end", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
+            self.exp_logger.log_progress("generation_end", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
             self.generation += 1
 
             progress_print_interval = max(1, self.max_no_of_evals_so_far_fully_evaluated // 10)
@@ -467,11 +471,11 @@ class CoSO:
 
         elapsed_s = (time.perf_counter_ns() - t)/1e9
         print(elapsed_s)
-        self._log_progress("finished", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
-        self._log_event("fin", sol_id=pretender_id, fit=self.evaluate(pretender), genotype=pretender, rank=0)
+        self.exp_logger.log_progress("finished", current_fit=self.evaluate(pretender), current_sol_id=pretender_id)
+        self.exp_logger.log_event("fin", sol_id=pretender_id, fit=self.evaluate(pretender), genotype=pretender, rank=0)
         for sol, id in elite_pop:
-            self._log_event("fin", sol_id=id, fit=self.evaluate(sol), genotype=sol)
-        self._log_event("end", best_genotype=self.best_sol, total_elapsed_s=self._elapsed_s())
+            self.exp_logger.log_event("fin", sol_id=id, fit=self.evaluate(sol), genotype=sol)
+        self.exp_logger.log_event("end", best_genotype=self.best_sol, total_elapsed_s=self._elapsed_s())
 
         self.logger.print_verbose(1, "Finally:")
         self.logger.print_verbose(0, "Best fitness = ", max([(self.evaluate(sol), (sol, id)) for sol, id in elite_pop], key=lambda x:x[0]))
@@ -480,7 +484,3 @@ if __name__ == '__main__':
 
     coso = CoSO()
     coso.evolve()
-
-# TODO - W PODNIENIANIU:
-#  - parsować genotyp na drzewo
-#  - zamiast podmieniac poddrzewa to podmieniac samą zawartość noda, semantyka poprawi sie sama A NIE CHUJ TO NIE ZADZIALA

@@ -36,6 +36,8 @@ class FeatureDeltaSpatial(Feature):
         return model
 
     def get_feature_value(self, seq):
+        """ różnica będzie "pitagorasem" 2 wektoróe reprezentujących położenie
+        wartości tresholdu to dosłownie odległości w 3d"""
         model = self._model_from_seq(seq)
         if model is None:
             return np.array([0.0], dtype=float)
@@ -56,5 +58,6 @@ class FeatureDeltaSpatial(Feature):
         start = self._part_pos(first) - first_dir * first.s._double()
         end = self._part_pos(last) + last_dir * last.s._double()
 
-        return np.array([float(np.linalg.norm(end - start))], dtype=float)
+        # return np.array([float(np.linalg.norm(end - start))], dtype=float)
+        return end - start
 

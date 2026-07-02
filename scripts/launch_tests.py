@@ -4,14 +4,14 @@ import time
 from pathlib import Path
 
 
-RUNS = 30
+RUNS = 24
 
 BASE_ARGS = [
     "--verbose", "0",
-    "--max_evals", "25000",
+    "--max_evals", "60000",
     "--elite_pop_size", "10",
     "--thresh_delta", "2",
-    "--thresh_cog", "60",
+    "--thresh_cog", "1",
     "--genotypes_file", "./population/f1_dataset.tsv",
 ]
 

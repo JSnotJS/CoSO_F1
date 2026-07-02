@@ -8,4 +8,5 @@ __pycache__
 frams.py
 results_*
 /launch_tests_logs
-/plots
+/plots/*
+/results/*

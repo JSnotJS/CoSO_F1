@@ -9,13 +9,13 @@ class FramsProblem:
             frams_path, 
             None, 
             ';'.join([
-                f"{context_path}eval-allcriteria-noNeu.sim",
+                f"{context_path}eval-allcriteria-mini.sim",
                 f"{context_path}deterministic.sim",
                 f"{context_path}sample-period-2.sim",
-                f"{context_path}stablilize-f1.sim",
                 f"{context_path}only-body.sim",
             ])
         )
+        # "eval-allcriteria-mini.sim;deterministic.sim;sample-period-2.sim;only-body.sim" TODO
 
         if task == "vertpos" or task == "velocity":
             self.task = task

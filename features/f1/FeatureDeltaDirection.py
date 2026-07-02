@@ -36,19 +36,23 @@ class FeatureDeltaDirection(Feature):
         return model
 
     def get_feature_value(self, seq):
+        """różnica będzie "pitagorasem" 2 wektoróe reprezentujących kierunek
+        wartości tresholdu orientacyjnie:
+        - 0 = identyczny kierunek
+        - ~0.52 = około 30 stopni różnicy
+        - ~1.0 = około 60 stopni
+        - ~1.41 = około 90 stopni
+        - 2.0 = przeciwny kierunek"""
+
         model = self._model_from_seq(seq)
         if model is None:
-            return np.array([0.0], dtype=float)
+            return np.array([0.0, 0.0, 0.0], dtype=float)
 
         num_parts = model.numparts._int()
         if num_parts == 1:
-            return np.array([0.0], dtype=float)
+            return np.array([0.0, 0.0, 0.0], dtype=float)
 
-        first_dir = self._part_dir(model.getPart(0), model.getPart(1))
         last_dir = self._part_dir(model.getPart(num_parts - 2), model.getPart(num_parts - 1))
 
-        dot = float(np.dot(first_dir, last_dir))
-        dot = max(-1.0, min(1.0, dot))
-        angle = float(np.degrees(np.arccos(dot)))
+        return last_dir
 
-        return np.array([angle], dtype=float)

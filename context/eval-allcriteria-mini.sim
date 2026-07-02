@@ -1,79 +1,45 @@
-# Minimal settings for evaluating core criteria in standard-eval.
-# Intended as a lightweight base profile for Python optimization runs.
+# Sample settings for evaluating many criteria of performance of a Framsticks creature.
+# See the "evalcount" parameter if you want to speed the evaluation up or have a more stable result.
+# Other important parameters are "Energy0" and "perfperiod".
+# Put this file in the "data" subdirectory within the Framsticks distribution.
+
+# "-mini.sim": does not contain all the default values of parameters, just the important differences.
 
 sim_params:
 expdef:standard-eval
-initialgen:X
-capacity:0
-MaxCreated:1
-placement:0
-rotation:0
-creath:0.1
+creatwarnfail:1
+p_nop:1.0
+p_mut:0.0
+p_xov:0.0
 Energy0:10000.0
-feed:0
-aging:0
 evalcount:2
 evalplan:~
 :numparts,numjoints,numneurons,numconnections,instances,lifespan,velocity,distance,vertvel,vertpos,fit,fit_stdev,time~
 evalsavedata:evaluation
 evalsavefile:genos_eval.json
-evalprintprogress:0
-
-# Keep all core criteria available; objective is selected in Python.
-cr_c:0.0
-cr_life:0.0
-cr_v:1.0
-cr_gl:0.0
-cr_joints:0.0
-cr_nnsiz:0.0
-cr_nncon:0.0
-cr_di:0.0
-cr_vpos:0.0
-cr_vvel:0.0
-cr_norm:0
-cr_simi:0
-cr_nsga:0
-
-# Keep f9 mutations disabled because this optimizer proposes replacements itself.
-f9_mut:0.0
-
-GenePool:
-name:Genotypes
-fitness:return 0.0+this.velocity*1.0;
-fitfun:0
-fitm:2.0
-fitma:2.0
-
-Population:
-name:Creatures
-energy:1
-death:1
-initial_nn_active:2
-nn_paused:0
-perfperiod:100
-stabilperiod:100
-killnostable:1000000
-stabledist:0.01
-initial_perf_measuring:2
-colmask:1
-selfmask:65537
-othermask:131073
-initial_physics_active:1
-initial_self_collisions:0
-
-Population:
-name:Food
-energy:1
-death:1
-initial_nn_active:0
-nn_paused:1
-perfperiod:100
-stabilperiod:100
-killnostable:1000000
-stabledist:0.01
-initial_perf_measuring:0
-colmask:1
-selfmask:131074
-othermask:65538
-initial_physics_active:1
-initial_self_collisions:0
+# disable color mutations -> simpler/shorter genotypes (no color-coding genes) and no wasting time for evaluating genotypes after neutral color mutations:
+f0_p_color:0.0
+f0_j_color:0.0
+f0s_p_color:0.0
+f0s_j_color:0.0
+f1_smModifiers:LlRrCcQqFfMm
+f4_mut_modifiers:LlRrCcQqFfMm
+# possibly non-default similarity parameter values for fast similarity estimation:
+simil_type:1
+simil_greedy_parts:0.0
+simil_greedy_partdeg:1.0
+simil_greedy_neuro:0.1
+simil_greedy_partgeom:1.0
+simil_greedy_fixedZaxis:0
+simil_greedy_weightedMDS:1
+simil_parts:0.0
+simil_partdeg:1.0
+simil_neuro:0.1
+simil_partgeom:1.0
+simil_fixedZaxis:0
+simil_weightedMDS:1
+simil_density:10.0
+simil_bin_num:128
+simil_samples_num:1000
+minjoint:0.05
+maxjoint:2.0
